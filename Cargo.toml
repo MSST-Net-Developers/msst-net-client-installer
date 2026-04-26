@@ -1,0 +1,11 @@
+[package]
+name = "msst-net-client-installer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+anyhow = "1"
+indicatif = "0.17"
+zip = "2"
