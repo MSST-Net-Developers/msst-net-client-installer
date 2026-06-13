@@ -2,6 +2,9 @@ use crate::detect::{Arch, Os};
 use anyhow::Result;
 use std::path::Path;
 
+const SYSTEMD_UNIT: &str = "/etc/systemd/system/msst-net.service";
+const LAUNCHD_PLIST: &str = "/Library/LaunchDaemons/net.msst.client.plist";
+
 #[derive(Debug, Clone, Copy)]
 pub enum ControllerType {
     Tauri,
@@ -70,6 +73,75 @@ pub fn install_service(os: Os, core_path: &Path) -> Result<()> {
     }
 }
 
+pub fn stop_service(os: Os) -> Result<()> {
+    match os {
+        Os::Linux => {
+            let _ = run_cmd("systemctl", &["stop", "msst-net"]);
+        }
+        Os::MacOs => {
+            let _ = run_cmd("launchctl", &["unload", LAUNCHD_PLIST]);
+        }
+        Os::Windows => {
+            let _ = std::process::Command::new("sc")
+                .args(["stop", "msst-net"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+        }
+    }
+    Ok(())
+}
+
+pub fn restart_service(os: Os) -> Result<()> {
+    match os {
+        Os::Linux => {
+            run_cmd("systemctl", &["restart", "msst-net"])?;
+            println!("Systemd 服务 'msst-net' 已重启。");
+        }
+        Os::MacOs => {
+            let _ = run_cmd("launchctl", &["unload", LAUNCHD_PLIST]);
+            run_cmd("launchctl", &["load", "-w", LAUNCHD_PLIST])?;
+            println!("LaunchDaemon 'net.msst.client' 已重新加载。");
+        }
+        Os::Windows => {
+            run_cmd("sc", &["start", "msst-net"])?;
+            println!("Windows 服务 'msst-net' 已启动。");
+        }
+    }
+    Ok(())
+}
+
+pub fn uninstall_service(os: Os) -> Result<()> {
+    match os {
+        Os::Linux => {
+            let _ = run_cmd("systemctl", &["stop", "msst-net"]);
+            let _ = run_cmd("systemctl", &["disable", "msst-net"]);
+            let _ = std::fs::remove_file(SYSTEMD_UNIT);
+            let _ = run_cmd("systemctl", &["daemon-reload"]);
+            println!("Systemd 服务 'msst-net' 已移除。");
+        }
+        Os::MacOs => {
+            let _ = run_cmd("launchctl", &["unload", LAUNCHD_PLIST]);
+            let _ = std::fs::remove_file(LAUNCHD_PLIST);
+            println!("LaunchDaemon 'net.msst.client' 已移除。");
+        }
+        Os::Windows => {
+            let _ = std::process::Command::new("sc")
+                .args(["stop", "msst-net"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+            let _ = std::process::Command::new("sc")
+                .args(["delete", "msst-net"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+            println!("Windows 服务 'msst-net' 已移除。");
+        }
+    }
+    Ok(())
+}
+
 fn install_systemd(core_path: &Path) -> Result<()> {
     let service = format!(
         "[Unit]\n\
@@ -87,7 +159,7 @@ fn install_systemd(core_path: &Path) -> Result<()> {
         core_path.display()
     );
 
-    std::fs::write("/etc/systemd/system/msst-net.service", service)?;
+    std::fs::write(SYSTEMD_UNIT, service)?;
 
     run_cmd("systemctl", &["daemon-reload"])?;
     run_cmd("systemctl", &["enable", "msst-net"])?;
@@ -119,9 +191,8 @@ fn install_launchd(core_path: &Path) -> Result<()> {
         core_path.display()
     );
 
-    let plist_path = "/Library/LaunchDaemons/net.msst.client.plist";
-    std::fs::write(plist_path, plist)?;
-    run_cmd("launchctl", &["load", "-w", plist_path])?;
+    std::fs::write(LAUNCHD_PLIST, plist)?;
+    run_cmd("launchctl", &["load", "-w", LAUNCHD_PLIST])?;
 
     println!("LaunchDaemon 'net.msst.client' 已加载。");
     Ok(())
