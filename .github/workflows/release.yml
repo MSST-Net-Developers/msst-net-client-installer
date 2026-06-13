@@ -72,6 +72,8 @@ jobs:
 
       - name: Build (cargo)
         if: '!matrix.use_cross'
+        env:
+          CARGO_HTTP_MULTIPLEXING: "false"
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Prepare artifact (Unix)
