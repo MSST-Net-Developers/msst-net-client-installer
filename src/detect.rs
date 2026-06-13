@@ -51,10 +51,24 @@ pub enum Arch {
 }
 
 impl Arch {
-    pub fn arch_str(self) -> &'static str {
+    pub fn display_name(self) -> &'static str {
         match self {
             Arch::X86_64 => "x86-64",
             Arch::Arm64 => "arm64",
+        }
+    }
+
+    pub fn arch_str(self) -> &'static str {
+        match self {
+            Arch::X86_64 => "x86_64",
+            Arch::Arm64 => "arm64",
+        }
+    }
+
+    pub fn core_arch_str(self) -> &'static str {
+        match self {
+            Arch::X86_64 => "x86_64",
+            Arch::Arm64 => "aarch64",
         }
     }
 

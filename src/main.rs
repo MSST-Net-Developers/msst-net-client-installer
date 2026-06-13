@@ -19,7 +19,7 @@ fn main() -> anyhow::Result<()> {
 
     let arch = match detect::detect_arch() {
         Some(a) => {
-            println!("CPU 架构：{}", a.arch_str());
+            println!("CPU 架构：{}", a.display_name());
             println!();
             a
         }
@@ -41,7 +41,7 @@ fn main() -> anyhow::Result<()> {
     let core_name = format!(
         "msst-net-client-core-{}-{}{}",
         os.platform_str(),
-        arch.arch_str(),
+        arch.core_arch_str(),
         os.exe_suffix()
     );
     let controller_name = format!(
@@ -49,7 +49,7 @@ fn main() -> anyhow::Result<()> {
         controller_type.type_str(),
         os.platform_str(),
         arch.arch_str(),
-        os.exe_suffix()
+        controller_type.os_suffix(os)
     );
 
     let core_asset = release.find_asset(&core_name).ok_or_else(|| {

@@ -17,6 +17,14 @@ impl ControllerType {
             ControllerType::Cli => "cli",
         }
     }
+
+    pub fn os_suffix(self, os: crate::detect::Os) -> &'static str {
+        match (self, os) {
+            (ControllerType::Tauri, crate::detect::Os::Linux) => ".AppImage",
+            (ControllerType::Tauri, crate::detect::Os::MacOs) => ".dmg",
+            _ => os.exe_suffix(),
+        }
+    }
 }
 
 #[cfg(unix)]

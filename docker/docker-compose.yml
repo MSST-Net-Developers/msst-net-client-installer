@@ -1,0 +1,43 @@
+version: "3.9"
+
+services:
+  msst-net-core:
+    image: msstnet/core:latest
+    container_name: msst-net-core
+    restart: unless-stopped
+
+    network_mode: host
+
+    cap_add:
+      - NET_ADMIN
+
+    devices:
+      - /dev/net/tun:/dev/net/tun
+
+    environment:
+      CORE_MODE: container
+      CORE_SOCKET_PATH: /run/msst/core.sock
+
+    volumes:
+      - ./data:/var/lib/msst
+      - ./run:/run/msst
+
+
+  msst-net-ctrl-webui:
+    image: msstnet/webui:latest
+    container_name: msst-net-ctrl-webui
+    restart: unless-stopped
+
+    depends_on:
+      - msst-net-core
+
+    network_mode: host
+
+    environment:
+      CORE_SOCKET: /run/msst/core.sock
+      WEBUI_BIND: 0.0.0.0:18080
+      ADMIN_PASSWORD: changeme  # 首次运行时生效；密码文件存在后此字段不再读取
+
+    volumes:
+      - ./run:/run/msst
+      - ./data:/var/lib/msst:ro

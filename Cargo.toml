@@ -1,6 +1,6 @@
 [package]
 name = "msst-net-client-installer"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 
 [dependencies]
@@ -9,3 +9,32 @@ serde = { version = "1", features = ["derive"] }
 anyhow = "1"
 indicatif = "0.17"
 zip = "2"
+
+[profile.dev]
+panic = "abort"
+
+[profile.dev-fast]
+inherits = "dev"
+debug = false
+strip = "debuginfo"
+
+[profile.release]
+opt-level = "z"
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = false
+rpath = false
+
+[profile.release.package."*"]
+opt-level = "z"
+strip = true
+codegen-units = 1
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = false
