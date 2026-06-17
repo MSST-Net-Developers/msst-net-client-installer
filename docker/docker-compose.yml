@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   msst-net-core:
-    image: msstnet/core:latest
+    image: abjust/msstnet-core:latest
     container_name: msst-net-core
     restart: unless-stopped
 
@@ -24,7 +24,7 @@ services:
 
 
   msst-net-ctrl-webui:
-    image: msstnet/webui:latest
+    image: abjust/msstnet-webui:latest
     container_name: msst-net-ctrl-webui
     restart: unless-stopped
 
