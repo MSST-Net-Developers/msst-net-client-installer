@@ -86,19 +86,43 @@ fn try_rpm_install(path: &str) -> bool {
     false
 }
 
-/// Create a wrapper shell script at `/usr/local/bin/msst-net-tauri` that sets
-/// the environment variables required to work around WebKitGTK EGL issues on
-/// Wayland (KDE Plasma, GNOME Wayland, etc.) and then executes the AppImage.
+/// Create a wrapper shell script at `/usr/local/bin/msst-net-tauri` that works
+/// around WebKitGTK EGL issues on Wayland without forcing XWayland.
+///
+/// Previous approach (GDK_BACKEND=x11) fixed the EGL_BAD_ALLOC crash but caused
+/// GTK to use XWayland's input path, making GtkIMContext initialisation block on
+/// every <input> focus and freeze the entire window.
+///
+/// Current approach: preload the system libwayland-client.so so WebKitGTK can
+/// create a real Wayland EGL display. This fixes the crash while keeping native
+/// Wayland input handling (no freeze). The library path is found at runtime via
+/// ldconfig, with fallbacks to the most common per-distro locations.
 pub fn create_appimage_wrapper(appimage_path: &Path) -> Result<()> {
     let script = format!(
         "#!/bin/sh\n\
          # MSST-Net Tauri controller launcher\n\
-         # Sets WebKitGTK / EGL workarounds for Wayland environments.\n\
-         export WEBKIT_DISABLE_COMPOSITING_MODE=\"${{WEBKIT_DISABLE_COMPOSITING_MODE:-1}}\"\n\
+         \n\
+         # Disable DMABUF renderer: the AppImage's sandboxed WebProcess may not\n\
+         # have access to DMA-BUF handles from the compositor.\n\
          export WEBKIT_DISABLE_DMABUF_RENDERER=\"${{WEBKIT_DISABLE_DMABUF_RENDERER:-1}}\"\n\
-         if [ -n \"$WAYLAND_DISPLAY\" ] && [ -z \"$GDK_BACKEND\" ]; then\n\
-             export GDK_BACKEND=x11\n\
+         \n\
+         # On Wayland, preload the *system* libwayland-client.so so WebKitGTK\n\
+         # can open a real Wayland EGL display (avoids EGL_BAD_ALLOC) while\n\
+         # keeping native Wayland input handling (avoids XWayland input freeze).\n\
+         if [ -n \"$WAYLAND_DISPLAY\" ] && [ -z \"$LD_PRELOAD\" ]; then\n\
+             _wl=$(ldconfig -p 2>/dev/null | awk '/libwayland-client\\.so\\.0/{{print $NF; exit}}')\n\
+             if [ -z \"$_wl\" ]; then\n\
+                 for _p in \\\n\
+                     /usr/lib64/libwayland-client.so.0 \\\n\
+                     /usr/lib/x86_64-linux-gnu/libwayland-client.so.0 \\\n\
+                     /usr/lib/aarch64-linux-gnu/libwayland-client.so.0 \\\n\
+                     /usr/lib/libwayland-client.so.0; do\n\
+                     if [ -f \"$_p\" ]; then _wl=\"$_p\"; break; fi\n\
+                 done\n\
+             fi\n\
+             [ -n \"$_wl\" ] && export LD_PRELOAD=\"$_wl\"\n\
          fi\n\
+         \n\
          exec {} \"$@\"\n",
         appimage_path.display()
     );
