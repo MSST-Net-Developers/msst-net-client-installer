@@ -3,7 +3,7 @@ mod github;
 mod install;
 mod ui;
 
-use detect::{Arch, Os};
+use detect::{Arch, LinuxPkgManager, Os};
 use install::ControllerType;
 
 enum Operation {
@@ -50,15 +50,44 @@ fn main() -> anyhow::Result<()> {
 fn run_install(os: Os, arch: Arch) -> anyhow::Result<()> {
     let controller_type = select_controller();
 
-    println!();
+    // On Linux, detect the package manager so we can offer native packages.
+    let linux_pkg_mgr = if os == Os::Linux {
+        let pm = detect::detect_linux_pkg_manager();
+        match pm {
+            LinuxPkgManager::Deb => println!("检测到包管理器：dpkg（Debian/Ubuntu 系列）"),
+            LinuxPkgManager::Rpm => println!("检测到包管理器：rpm（Fedora/RHEL 系列）"),
+            LinuxPkgManager::Other => println!("未检测到 deb/rpm 包管理器，将使用 AppImage"),
+        }
+        println!();
+        pm
+    } else {
+        LinuxPkgManager::Other
+    };
+
     println!("正在获取最新版本信息...");
     let client = reqwest::blocking::Client::new();
     let release = github::fetch_latest_release(&client)?;
     println!("最新版本：{}", release.tag_name);
     println!();
 
-    let (core_name, controller_name) = build_asset_names(os, arch, controller_type);
-    let (core_asset, controller_asset) = find_assets(&release, &core_name, &controller_name)?;
+    let core_name = build_core_name(os, arch);
+    let (controller_name, use_native_pkg) =
+        resolve_controller_name(os, arch, controller_type, linux_pkg_mgr, &release);
+
+    let core_asset = release.find_asset(&core_name).ok_or_else(|| {
+        anyhow::anyhow!(
+            "在 Release 中未找到核心文件 '{}'。可用文件：\n{}",
+            core_name,
+            release.assets.iter().map(|a| format!("  - {}", a.name)).collect::<Vec<_>>().join("\n")
+        )
+    })?;
+    let controller_asset = release.find_asset(&controller_name).ok_or_else(|| {
+        anyhow::anyhow!(
+            "在 Release 中未找到控制器文件 '{}'。可用文件：\n{}",
+            controller_name,
+            release.assets.iter().map(|a| format!("  - {}", a.name)).collect::<Vec<_>>().join("\n")
+        )
+    })?;
 
     let install_dir = os.install_dir();
     println!("安装目录：{}", install_dir.display());
@@ -70,11 +99,25 @@ fn run_install(os: Os, arch: Arch) -> anyhow::Result<()> {
     #[cfg(unix)]
     install::make_executable(&core_dest)?;
 
-    let controller_dest = install_dir.join(&controller_name);
     println!("正在下载控制器（{}）...", format_size(controller_asset.size));
-    github::download_file(&client, &controller_asset.browser_download_url, &controller_dest)?;
-    #[cfg(unix)]
-    install::make_executable(&controller_dest)?;
+    let controller_dest = if use_native_pkg {
+        // Download to /tmp, install via package manager, then delete the package file.
+        let tmp_path = std::env::temp_dir().join(&controller_name);
+        github::download_file(&client, &controller_asset.browser_download_url, &tmp_path)?;
+        install::install_linux_native_package(&tmp_path, linux_pkg_mgr)?;
+        let _ = std::fs::remove_file(&tmp_path);
+        None
+    } else {
+        let dest = install_dir.join(&controller_name);
+        github::download_file(&client, &controller_asset.browser_download_url, &dest)?;
+        #[cfg(unix)]
+        install::make_executable(&dest)?;
+        // Create wrapper script for AppImage (sets EGL/Wayland env vars).
+        if os == Os::Linux && matches!(controller_type, ControllerType::Tauri) {
+            install::create_appimage_wrapper(&dest)?;
+        }
+        Some(dest)
+    };
 
     if os == Os::Windows {
         install::install_wintun(&client, &install_dir, arch)?;
@@ -88,7 +131,11 @@ fn run_install(os: Os, arch: Arch) -> anyhow::Result<()> {
     println!("=== 安装完成！===");
     println!("安装目录：{}", install_dir.display());
     println!("网络核心：{}", core_dest.display());
-    println!("控制器  ：{}", controller_dest.display());
+    if let Some(p) = &controller_dest {
+        println!("控制器  ：{}", p.display());
+    } else {
+        println!("控制器  ：已通过系统包管理器安装");
+    }
     println!("服务    ：msst-net（已启用并运行）");
 
     Ok(())
@@ -97,15 +144,35 @@ fn run_install(os: Os, arch: Arch) -> anyhow::Result<()> {
 fn run_update(os: Os, arch: Arch) -> anyhow::Result<()> {
     let controller_type = select_controller();
 
-    println!();
+    let linux_pkg_mgr = if os == Os::Linux {
+        let pm = detect::detect_linux_pkg_manager();
+        match pm {
+            LinuxPkgManager::Deb => println!("检测到包管理器：dpkg（Debian/Ubuntu 系列）"),
+            LinuxPkgManager::Rpm => println!("检测到包管理器：rpm（Fedora/RHEL 系列）"),
+            LinuxPkgManager::Other => println!("未检测到 deb/rpm 包管理器，将使用 AppImage"),
+        }
+        println!();
+        pm
+    } else {
+        LinuxPkgManager::Other
+    };
+
     println!("正在获取最新版本信息...");
     let client = reqwest::blocking::Client::new();
     let release = github::fetch_latest_release(&client)?;
     println!("最新版本：{}", release.tag_name);
     println!();
 
-    let (core_name, controller_name) = build_asset_names(os, arch, controller_type);
-    let (core_asset, controller_asset) = find_assets(&release, &core_name, &controller_name)?;
+    let core_name = build_core_name(os, arch);
+    let (controller_name, use_native_pkg) =
+        resolve_controller_name(os, arch, controller_type, linux_pkg_mgr, &release);
+
+    let core_asset = release.find_asset(&core_name).ok_or_else(|| {
+        anyhow::anyhow!("在 Release 中未找到核心文件 '{}'", core_name)
+    })?;
+    let controller_asset = release.find_asset(&controller_name).ok_or_else(|| {
+        anyhow::anyhow!("在 Release 中未找到控制器文件 '{}'", controller_name)
+    })?;
 
     let install_dir = os.install_dir();
     println!("安装目录：{}", install_dir.display());
@@ -120,11 +187,23 @@ fn run_update(os: Os, arch: Arch) -> anyhow::Result<()> {
     #[cfg(unix)]
     install::make_executable(&core_dest)?;
 
-    let controller_dest = install_dir.join(&controller_name);
     println!("正在下载控制器（{}）...", format_size(controller_asset.size));
-    github::download_file(&client, &controller_asset.browser_download_url, &controller_dest)?;
-    #[cfg(unix)]
-    install::make_executable(&controller_dest)?;
+    let controller_dest = if use_native_pkg {
+        let tmp_path = std::env::temp_dir().join(&controller_name);
+        github::download_file(&client, &controller_asset.browser_download_url, &tmp_path)?;
+        install::install_linux_native_package(&tmp_path, linux_pkg_mgr)?;
+        let _ = std::fs::remove_file(&tmp_path);
+        None
+    } else {
+        let dest = install_dir.join(&controller_name);
+        github::download_file(&client, &controller_asset.browser_download_url, &dest)?;
+        #[cfg(unix)]
+        install::make_executable(&dest)?;
+        if os == Os::Linux && matches!(controller_type, ControllerType::Tauri) {
+            install::create_appimage_wrapper(&dest)?;
+        }
+        Some(dest)
+    };
 
     if os == Os::Windows {
         install::install_wintun(&client, &install_dir, arch)?;
@@ -138,7 +217,11 @@ fn run_update(os: Os, arch: Arch) -> anyhow::Result<()> {
     println!("=== 更新完成！===");
     println!("安装目录：{}", install_dir.display());
     println!("网络核心：{}", core_dest.display());
-    println!("控制器  ：{}", controller_dest.display());
+    if let Some(p) = &controller_dest {
+        println!("控制器  ：{}", p.display());
+    } else {
+        println!("控制器  ：已通过系统包管理器安装");
+    }
 
     Ok(())
 }
@@ -153,6 +236,11 @@ fn run_uninstall(os: Os) -> anyhow::Result<()> {
 
     println!("正在停止并移除服务...");
     install::uninstall_service(os)?;
+
+    // Remove the AppImage wrapper script if present.
+    if os == Os::Linux {
+        install::remove_appimage_wrapper();
+    }
 
     let install_dir = os.install_dir();
     if install_dir.exists() {
@@ -216,43 +304,59 @@ fn select_controller() -> ControllerType {
     }
 }
 
-fn build_asset_names(os: Os, arch: Arch, controller_type: ControllerType) -> (String, String) {
-    let core_name = format!(
+fn build_core_name(os: Os, arch: Arch) -> String {
+    format!(
         "msst-net-client-core-{}-{}{}",
         os.platform_str(),
         arch.core_arch_str(),
         os.exe_suffix()
-    );
-    let controller_name = format!(
-        "msst-net-client-controller-{}-{}-{}{}",
+    )
+}
+
+/// Determine the controller asset filename.
+///
+/// For Linux Tauri, we first try the native package format (deb/rpm).  If the
+/// release does not contain that asset (e.g. because only the AppImage was
+/// published for this release), we transparently fall back to `.AppImage`.
+///
+/// Returns `(asset_name, use_native_pkg)` where `use_native_pkg` is `true`
+/// when a deb/rpm asset was found and should be installed via the OS package
+/// manager.
+fn resolve_controller_name(
+    os: Os,
+    arch: Arch,
+    controller_type: ControllerType,
+    linux_pkg_mgr: LinuxPkgManager,
+    release: &github::ReleaseInfo,
+) -> (String, bool) {
+    let base = format!(
+        "msst-net-client-controller-{}-{}-{}",
         controller_type.type_str(),
         os.platform_str(),
         arch.arch_str(),
-        controller_type.os_suffix(os)
     );
-    (core_name, controller_name)
-}
 
-fn find_assets<'a>(
-    release: &'a github::ReleaseInfo,
-    core_name: &str,
-    controller_name: &str,
-) -> anyhow::Result<(&'a github::Asset, &'a github::Asset)> {
-    let core_asset = release.find_asset(core_name).ok_or_else(|| {
-        anyhow::anyhow!(
-            "在 Release 中未找到核心文件 '{}'。可用文件：\n{}",
-            core_name,
-            release.assets.iter().map(|a| format!("  - {}", a.name)).collect::<Vec<_>>().join("\n")
-        )
-    })?;
-    let controller_asset = release.find_asset(controller_name).ok_or_else(|| {
-        anyhow::anyhow!(
-            "在 Release 中未找到控制器文件 '{}'。可用文件：\n{}",
-            controller_name,
-            release.assets.iter().map(|a| format!("  - {}", a.name)).collect::<Vec<_>>().join("\n")
-        )
-    })?;
-    Ok((core_asset, controller_asset))
+    // On Linux, for the Tauri controller, try native package first.
+    if os == Os::Linux && matches!(controller_type, ControllerType::Tauri) {
+        let preferred = ControllerType::linux_preferred_suffix(linux_pkg_mgr);
+        if preferred != ".AppImage" {
+            let native_name = format!("{}{}", base, preferred);
+            if release.find_asset(&native_name).is_some() {
+                println!(
+                    "找到原生 {} 包，将使用系统包管理器安装。",
+                    preferred.trim_start_matches('.')
+                );
+                return (native_name, true);
+            }
+            println!(
+                "未在 Release 中找到 {} 包，退回到 AppImage。",
+                preferred.trim_start_matches('.')
+            );
+        }
+    }
+
+    let suffix = controller_type.os_suffix(os);
+    (format!("{}{}", base, suffix), false)
 }
 
 fn format_size(bytes: u64) -> String {

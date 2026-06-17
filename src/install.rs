@@ -1,9 +1,11 @@
-use crate::detect::{Arch, Os};
+use crate::detect::{Arch, LinuxPkgManager, Os};
 use anyhow::Result;
 use std::path::Path;
 
 const SYSTEMD_UNIT: &str = "/etc/systemd/system/msst-net.service";
 const LAUNCHD_PLIST: &str = "/Library/LaunchDaemons/net.msst.client.plist";
+/// Wrapper script placed on $PATH so users can launch the Tauri controller directly.
+const APPIMAGE_WRAPPER: &str = "/usr/local/bin/msst-net-tauri";
 
 #[derive(Debug, Clone, Copy)]
 pub enum ControllerType {
@@ -28,6 +30,88 @@ impl ControllerType {
             _ => os.exe_suffix(),
         }
     }
+
+    /// Return the preferred Linux Tauri asset suffix given the detected package
+    /// manager.  The caller should try this first; if the asset is not found in
+    /// the release it should fall back to `os_suffix` (AppImage).
+    pub fn linux_preferred_suffix(pkg_mgr: LinuxPkgManager) -> &'static str {
+        match pkg_mgr {
+            LinuxPkgManager::Deb => ".deb",
+            LinuxPkgManager::Rpm => ".rpm",
+            LinuxPkgManager::Other => ".AppImage",
+        }
+    }
+}
+
+/// Install a downloaded .deb or .rpm package using the system package manager.
+/// `path` is the downloaded package file (may be in /tmp).
+pub fn install_linux_native_package(path: &Path, pkg_mgr: LinuxPkgManager) -> Result<()> {
+    let path_str = path.to_string_lossy();
+    match pkg_mgr {
+        LinuxPkgManager::Deb => {
+            println!("正在使用 dpkg 安装 deb 包...");
+            run_cmd("dpkg", &["-i", &path_str])?;
+            println!("deb 包安装完成。");
+        }
+        LinuxPkgManager::Rpm => {
+            // Prefer dnf → yum → rpm for better dependency resolution.
+            println!("正在使用 rpm 安装 rpm 包...");
+            let installed = try_rpm_install(&path_str);
+            if !installed {
+                run_cmd("rpm", &["-Uvh", "--force", &path_str])?;
+            }
+            println!("rpm 包安装完成。");
+        }
+        LinuxPkgManager::Other => {}
+    }
+    Ok(())
+}
+
+fn try_rpm_install(path: &str) -> bool {
+    for pm in &["dnf", "yum", "zypper"] {
+        let args: Vec<&str> = if *pm == "zypper" {
+            vec!["install", "--no-confirm", path]
+        } else {
+            vec!["install", "-y", path]
+        };
+        if std::process::Command::new(pm)
+            .args(&args)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Create a wrapper shell script at `/usr/local/bin/msst-net-tauri` that sets
+/// the environment variables required to work around WebKitGTK EGL issues on
+/// Wayland (KDE Plasma, GNOME Wayland, etc.) and then executes the AppImage.
+pub fn create_appimage_wrapper(appimage_path: &Path) -> Result<()> {
+    let script = format!(
+        "#!/bin/sh\n\
+         # MSST-Net Tauri controller launcher\n\
+         # Sets WebKitGTK / EGL workarounds for Wayland environments.\n\
+         export WEBKIT_DISABLE_COMPOSITING_MODE=\"${{WEBKIT_DISABLE_COMPOSITING_MODE:-1}}\"\n\
+         export WEBKIT_DISABLE_DMABUF_RENDERER=\"${{WEBKIT_DISABLE_DMABUF_RENDERER:-1}}\"\n\
+         if [ -n \"$WAYLAND_DISPLAY\" ] && [ -z \"$GDK_BACKEND\" ]; then\n\
+             export GDK_BACKEND=x11\n\
+         fi\n\
+         exec {} \"$@\"\n",
+        appimage_path.display()
+    );
+    std::fs::write(APPIMAGE_WRAPPER, script)?;
+    #[cfg(unix)]
+    make_executable(Path::new(APPIMAGE_WRAPPER))?;
+    println!("已创建启动脚本：{}", APPIMAGE_WRAPPER);
+    Ok(())
+}
+
+/// Remove the AppImage wrapper script (used during uninstall).
+pub fn remove_appimage_wrapper() {
+    let _ = std::fs::remove_file(APPIMAGE_WRAPPER);
 }
 
 #[cfg(unix)]

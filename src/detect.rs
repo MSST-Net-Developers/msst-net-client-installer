@@ -80,6 +80,56 @@ impl Arch {
     }
 }
 
+/// Which native package manager is available on this Linux system.
+/// Used to decide whether to install a .deb / .rpm instead of the AppImage.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LinuxPkgManager {
+    /// Debian / Ubuntu / Mint / Pop!_OS …  (dpkg + apt)
+    Deb,
+    /// Fedora / RHEL / CentOS / openSUSE … (rpm + dnf/yum/zypper)
+    Rpm,
+    /// Arch / Void / other — fall back to AppImage
+    Other,
+}
+
+/// Detect the Linux package manager by checking well-known marker files and
+/// then falling back to probing the `dpkg` / `rpm` binaries with `which`.
+pub fn detect_linux_pkg_manager() -> LinuxPkgManager {
+    // File-based detection is reliable and fast.
+    if std::path::Path::new("/etc/debian_version").exists() {
+        return LinuxPkgManager::Deb;
+    }
+    for marker in &[
+        "/etc/fedora-release",
+        "/etc/redhat-release",
+        "/etc/centos-release",
+        "/etc/SuSE-release",
+        "/etc/opensuse-release",
+    ] {
+        if std::path::Path::new(marker).exists() {
+            return LinuxPkgManager::Rpm;
+        }
+    }
+    // Fall back to probing binaries.
+    if which_on_path("dpkg") {
+        return LinuxPkgManager::Deb;
+    }
+    if which_on_path("rpm") {
+        return LinuxPkgManager::Rpm;
+    }
+    LinuxPkgManager::Other
+}
+
+fn which_on_path(cmd: &str) -> bool {
+    std::process::Command::new("sh")
+        .args(["-c", &format!("command -v {cmd}")])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 pub fn detect_os() -> Os {
     if cfg!(target_os = "linux") {
         Os::Linux
