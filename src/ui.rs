@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use console::style;
 use dialoguer::{theme::ColorfulTheme, Confirm, Select};
 
