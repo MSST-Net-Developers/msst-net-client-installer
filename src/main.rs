@@ -243,6 +243,7 @@ fn run_uninstall(os: Os) -> anyhow::Result<()> {
     if install_dir.exists() {
         ui::print_info(&format!("正在删除安装目录：{}", install_dir.display()));
         std::fs::remove_dir_all(&install_dir)?;
+        ui::print_success("安装目录已删除。");
     }
 
     println!();

@@ -44,7 +44,7 @@ pub fn print_warning(msg: &str) {
 pub fn prompt_yn(question: &str) -> bool {
     Confirm::with_theme(&ColorfulTheme::default())
         .with_prompt(question)
-        .default(true)
+        .default(false)
         .interact()
         .unwrap_or(false)
 }
