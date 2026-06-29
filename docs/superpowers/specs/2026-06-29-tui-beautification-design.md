@@ -14,7 +14,8 @@ dialoguer = "0.11"
 console   = "0.15"
 ```
 
-- `dialoguer`：提供 `Select`（方向键菜单）和 `Confirm`（Y/N 确认框）
+- `dial
+- oguer`：提供 `Select`（方向键菜单）和 `Confirm`（Y/N 确认框）
 - `console`：提供 `style()`、`Term`，用于颜色、加粗、清行
 
 ## 变更范围

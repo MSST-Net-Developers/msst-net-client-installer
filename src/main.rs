@@ -13,11 +13,10 @@ enum Operation {
 }
 
 fn main() -> anyhow::Result<()> {
-    println!("=== MSST-Net 客户端安装程序 ===");
-    println!();
+    ui::print_banner();
 
     if !detect::is_elevated() {
-        eprintln!("错误：安装程序必须以 root（Linux/macOS）或管理员（Windows）权限运行。");
+        ui::print_error("安装程序必须以 root（Linux/macOS）或管理员（Windows）权限运行。");
         std::process::exit(1);
     }
 
@@ -65,11 +64,10 @@ fn run_install(os: Os, arch: Arch) -> anyhow::Result<()> {
         LinuxPkgManager::Other
     };
 
-    println!("正在从 {} 获取最新版本信息...", mirror.display_name());
+    ui::print_section(&format!("从 {} 获取最新版本信息", mirror.display_name()));
     let client = reqwest::blocking::Client::new();
     let release = github::fetch_latest_release(&client, mirror)?;
-    println!("最新版本：{}", release.tag_name);
-    println!();
+    ui::print_info(&format!("最新版本：{}", release.tag_name));
 
     let core_name = build_core_name(os, arch);
     let (controller_name, use_native_pkg) =
@@ -91,7 +89,7 @@ fn run_install(os: Os, arch: Arch) -> anyhow::Result<()> {
     })?;
 
     let install_dir = os.install_dir();
-    println!("安装目录：{}", install_dir.display());
+    ui::print_info(&format!("安装目录：{}", install_dir.display()));
     std::fs::create_dir_all(&install_dir)?;
 
     let core_dest = install_dir.join(&core_name);
@@ -124,20 +122,19 @@ fn run_install(os: Os, arch: Arch) -> anyhow::Result<()> {
         install::install_wintun(&client, &install_dir, arch)?;
     }
 
-    println!();
-    println!("正在配置系统服务...");
+    ui::print_section("配置系统服务");
     install::install_service(os, &core_dest)?;
 
     println!();
-    println!("=== 安装完成！===");
-    println!("安装目录：{}", install_dir.display());
-    println!("网络核心：{}", core_dest.display());
+    ui::print_success("安装完成！");
+    ui::print_info(&format!("安装目录：{}", install_dir.display()));
+    ui::print_info(&format!("网络核心：{}", core_dest.display()));
     if let Some(p) = &controller_dest {
-        println!("控制器  ：{}", p.display());
+        ui::print_info(&format!("控制器  ：{}", p.display()));
     } else {
-        println!("控制器  ：已通过系统包管理器安装");
+        ui::print_info("控制器  ：已通过系统包管理器安装");
     }
-    println!("服务    ：msst-net（已启用并运行）");
+    ui::print_info("服务    ：msst-net（已启用并运行）");
 
     Ok(())
 }
@@ -159,11 +156,10 @@ fn run_update(os: Os, arch: Arch) -> anyhow::Result<()> {
         LinuxPkgManager::Other
     };
 
-    println!("正在从 {} 获取最新版本信息...", mirror.display_name());
+    ui::print_section(&format!("从 {} 获取最新版本信息", mirror.display_name()));
     let client = reqwest::blocking::Client::new();
     let release = github::fetch_latest_release(&client, mirror)?;
-    println!("最新版本：{}", release.tag_name);
-    println!();
+    ui::print_info(&format!("最新版本：{}", release.tag_name));
 
     let core_name = build_core_name(os, arch);
     let (controller_name, use_native_pkg) =
@@ -177,10 +173,10 @@ fn run_update(os: Os, arch: Arch) -> anyhow::Result<()> {
     })?;
 
     let install_dir = os.install_dir();
-    println!("安装目录：{}", install_dir.display());
+    ui::print_info(&format!("安装目录：{}", install_dir.display()));
     std::fs::create_dir_all(&install_dir)?;
 
-    println!("正在停止服务...");
+    ui::print_section("停止服务");
     install::stop_service(os)?;
 
     let core_dest = install_dir.join(&core_name);
@@ -211,32 +207,31 @@ fn run_update(os: Os, arch: Arch) -> anyhow::Result<()> {
         install::install_wintun(&client, &install_dir, arch)?;
     }
 
-    println!();
-    println!("正在重启服务...");
+    ui::print_section("重启服务");
     install::restart_service(os)?;
 
     println!();
-    println!("=== 更新完成！===");
-    println!("安装目录：{}", install_dir.display());
-    println!("网络核心：{}", core_dest.display());
+    ui::print_success("更新完成！");
+    ui::print_info(&format!("安装目录：{}", install_dir.display()));
+    ui::print_info(&format!("网络核心：{}", core_dest.display()));
     if let Some(p) = &controller_dest {
-        println!("控制器  ：{}", p.display());
+        ui::print_info(&format!("控制器  ：{}", p.display()));
     } else {
-        println!("控制器  ：已通过系统包管理器安装");
+        ui::print_info("控制器  ：已通过系统包管理器安装");
     }
 
     Ok(())
 }
 
 fn run_uninstall(os: Os) -> anyhow::Result<()> {
-    println!("警告：此操作将停止并删除 MSST-Net 服务及所有已安装文件。");
+    ui::print_warning("此操作将停止并删除 MSST-Net 服务及所有已安装文件。");
     if !ui::prompt_yn("确认卸载？") {
-        println!("已取消。");
+        ui::print_info("已取消。");
         return Ok(());
     }
     println!();
 
-    println!("正在停止并移除服务...");
+    ui::print_section("停止并移除服务");
     install::uninstall_service(os)?;
 
     // Remove the AppImage wrapper script if present.
@@ -246,13 +241,12 @@ fn run_uninstall(os: Os) -> anyhow::Result<()> {
 
     let install_dir = os.install_dir();
     if install_dir.exists() {
-        println!("正在删除安装目录：{}", install_dir.display());
+        ui::print_info(&format!("正在删除安装目录：{}", install_dir.display()));
         std::fs::remove_dir_all(&install_dir)?;
-        println!("安装目录已删除。");
     }
 
     println!();
-    println!("=== 卸载完成！===");
+    ui::print_success("卸载完成！");
 
     Ok(())
 }

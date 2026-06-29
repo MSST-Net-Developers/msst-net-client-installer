@@ -1,18 +1,16 @@
-#![allow(dead_code)]
-
 use console::style;
 use dialoguer::{theme::ColorfulTheme, Confirm, Select};
 
 pub fn print_banner() {
     println!();
-    println!("  {}", style("╭─────────────────────────────────╮").cyan());
+    println!("  {}", style("╭───────────────────────────╮").cyan());
     println!(
         "  {}  {}  {}",
         style("│").cyan(),
         style("MSST-Net 客户端安装程序").cyan().bold(),
         style("│").cyan()
     );
-    println!("  {}", style("╰─────────────────────────────────╯").cyan());
+    println!("  {}", style("╰───────────────────────────╯").cyan());
     println!();
 }
 
@@ -27,11 +25,20 @@ pub fn print_success(msg: &str) {
 }
 
 pub fn print_error(msg: &str) {
-    eprintln!("  {} {}", style("✗").red().bold(), style(msg).red());
+    let enabled = console::colors_enabled_stderr();
+    eprintln!(
+        "  {} {}",
+        style("✗").red().bold().force_styling(enabled),
+        style(msg).red().force_styling(enabled)
+    );
 }
 
 pub fn print_info(msg: &str) {
     println!("  {} {}", style("·").dim(), style(msg).dim());
+}
+
+pub fn print_warning(msg: &str) {
+    println!("  {} {}", style("⚠").yellow().bold(), style(msg).yellow());
 }
 
 pub fn prompt_yn(question: &str) -> bool {
