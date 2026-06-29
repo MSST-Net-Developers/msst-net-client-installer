@@ -4,8 +4,24 @@ use serde::Deserialize;
 use std::io::{Read, Write};
 use std::path::Path;
 
-const RELEASES_API: &str = "https://api.github.com/repos/MSST-Net-Developers/msst-net-client-release/releases/latest";
+const GITHUB_API: &str = "https://api.github.com/repos/MSST-Net-Developers/msst-net-client-release/releases/latest";
+const GITEE_API: &str = "https://gitee.com/api/v5/repos/Abjust/msst-net-client-release/releases/latest";
 const USER_AGENT: &str = concat!("msst-net-client-installer/", env!("CARGO_PKG_VERSION"));
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Mirror {
+    GitHub,
+    Gitee,
+}
+
+impl Mirror {
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Mirror::GitHub => "GitHub（官方源）",
+            Mirror::Gitee => "Gitee（国内镜像）",
+        }
+    }
+}
 
 #[derive(Deserialize)]
 pub struct ReleaseInfo {
@@ -17,6 +33,7 @@ pub struct ReleaseInfo {
 pub struct Asset {
     pub name: String,
     pub browser_download_url: String,
+    #[serde(default)]
     pub size: u64,
 }
 
@@ -26,11 +43,22 @@ impl ReleaseInfo {
     }
 }
 
-pub fn fetch_latest_release(client: &reqwest::blocking::Client) -> Result<ReleaseInfo> {
-    let release = client
-        .get(RELEASES_API)
-        .header("User-Agent", USER_AGENT)
-        .header("Accept", "application/vnd.github+json")
+pub fn fetch_latest_release(
+    client: &reqwest::blocking::Client,
+    mirror: Mirror,
+) -> Result<ReleaseInfo> {
+    let mut builder = client
+        .get(match mirror {
+            Mirror::GitHub => GITHUB_API,
+            Mirror::Gitee => GITEE_API,
+        })
+        .header("User-Agent", USER_AGENT);
+
+    if matches!(mirror, Mirror::GitHub) {
+        builder = builder.header("Accept", "application/vnd.github+json");
+    }
+
+    let release = builder
         .send()?
         .error_for_status()?
         .json::<ReleaseInfo>()?;

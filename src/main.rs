@@ -49,6 +49,7 @@ fn main() -> anyhow::Result<()> {
 
 fn run_install(os: Os, arch: Arch) -> anyhow::Result<()> {
     let controller_type = select_controller();
+    let mirror = select_mirror();
 
     // On Linux, detect the package manager so we can offer native packages.
     let linux_pkg_mgr = if os == Os::Linux {
@@ -64,9 +65,9 @@ fn run_install(os: Os, arch: Arch) -> anyhow::Result<()> {
         LinuxPkgManager::Other
     };
 
-    println!("正在获取最新版本信息...");
+    println!("正在从 {} 获取最新版本信息...", mirror.display_name());
     let client = reqwest::blocking::Client::new();
-    let release = github::fetch_latest_release(&client)?;
+    let release = github::fetch_latest_release(&client, mirror)?;
     println!("最新版本：{}", release.tag_name);
     println!();
 
@@ -143,6 +144,7 @@ fn run_install(os: Os, arch: Arch) -> anyhow::Result<()> {
 
 fn run_update(os: Os, arch: Arch) -> anyhow::Result<()> {
     let controller_type = select_controller();
+    let mirror = select_mirror();
 
     let linux_pkg_mgr = if os == Os::Linux {
         let pm = detect::detect_linux_pkg_manager();
@@ -157,9 +159,9 @@ fn run_update(os: Os, arch: Arch) -> anyhow::Result<()> {
         LinuxPkgManager::Other
     };
 
-    println!("正在获取最新版本信息...");
+    println!("正在从 {} 获取最新版本信息...", mirror.display_name());
     let client = reqwest::blocking::Client::new();
-    let release = github::fetch_latest_release(&client)?;
+    let release = github::fetch_latest_release(&client, mirror)?;
     println!("最新版本：{}", release.tag_name);
     println!();
 
@@ -282,6 +284,19 @@ fn select_operation() -> Operation {
         0 => Operation::Install,
         1 => Operation::Update,
         2 => Operation::Uninstall,
+        _ => unreachable!(),
+    }
+}
+
+fn select_mirror() -> github::Mirror {
+    let idx = ui::prompt_select(
+        "请选择下载源：",
+        &["Gitee（国内镜像，推荐）", "GitHub（官方源）"],
+    );
+    println!();
+    match idx {
+        0 => github::Mirror::Gitee,
+        1 => github::Mirror::GitHub,
         _ => unreachable!(),
     }
 }

@@ -319,15 +319,18 @@ fn install_windows_service(core_path: &Path) -> Result<()> {
         .stderr(std::process::Stdio::null())
         .status();
 
-    let bin_path_arg = format!("binPath= \"{}\"", core_path.display());
+    let core_path_str = core_path.to_string_lossy();
     run_cmd(
         "sc",
         &[
             "create",
             "msst-net",
-            &bin_path_arg,
-            "start= auto",
-            "DisplayName= MSST-Net Client",
+            "binPath=",
+            core_path_str.as_ref(),
+            "start=",
+            "auto",
+            "DisplayName=",
+            "MSST-Net Client",
         ],
     )?;
     run_cmd(
