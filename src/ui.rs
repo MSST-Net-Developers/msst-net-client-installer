@@ -1,5 +1,5 @@
 use console::style;
-use dialoguer::{theme::ColorfulTheme, Confirm, Select};
+use dialoguer::{theme::ColorfulTheme, Confirm, Password, Select};
 
 pub fn print_banner() {
     println!();
@@ -47,6 +47,14 @@ pub fn prompt_yn(question: &str) -> bool {
         .default(false)
         .interact()
         .unwrap_or(false)
+}
+
+pub fn prompt_password(prompt: &str) -> String {
+    Password::with_theme(&ColorfulTheme::default())
+        .with_prompt(prompt)
+        .allow_empty_password(true)
+        .interact()
+        .unwrap_or_default()
 }
 
 pub fn prompt_select(prompt: &str, options: &[&str]) -> usize {

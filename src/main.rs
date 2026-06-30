@@ -1,4 +1,5 @@
 mod detect;
+mod docker;
 mod github;
 mod install;
 mod ui;
@@ -12,6 +13,11 @@ enum Operation {
     Uninstall,
 }
 
+enum DeployMode {
+    Native,
+    Docker,
+}
+
 fn main() -> anyhow::Result<()> {
     ui::print_banner();
 
@@ -21,7 +27,16 @@ fn main() -> anyhow::Result<()> {
     }
 
     let os = confirm_os(detect::detect_os());
+    let deploy_mode = select_deploy_mode();
     let operation = select_operation();
+
+    if matches!(deploy_mode, DeployMode::Docker) {
+        return match operation {
+            Operation::Install => docker::run_docker_install(os),
+            Operation::Update => docker::run_docker_update(os),
+            Operation::Uninstall => docker::run_docker_uninstall(os),
+        };
+    }
 
     if matches!(operation, Operation::Uninstall) {
         return run_uninstall(os);
@@ -265,6 +280,19 @@ fn confirm_os(detected: Os) -> Os {
         0 => Os::Linux,
         1 => Os::Windows,
         2 => Os::MacOs,
+        _ => unreachable!(),
+    }
+}
+
+fn select_deploy_mode() -> DeployMode {
+    let idx = ui::prompt_select(
+        "请选择安装方式：",
+        &["原生安装（系统服务）", "Docker 安装（docker-compose）"],
+    );
+    println!();
+    match idx {
+        0 => DeployMode::Native,
+        1 => DeployMode::Docker,
         _ => unreachable!(),
     }
 }
